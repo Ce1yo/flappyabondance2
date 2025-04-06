@@ -453,4 +453,164 @@
 
     checkCollision() {
       const playerHitbox = {
-        x: this.playe
+        x: this.player.x,
+        y: this.player.y,
+        width: this.player.width,
+        height: this.player.height
+      };
+
+      // Ne vérifie que les collisions avec les obstacles
+      return this.obstacles.some(obstacle => (
+        playerHitbox.x < obstacle.x + obstacle.width &&
+        playerHitbox.x + playerHitbox.width > obstacle.x &&
+        playerHitbox.y < obstacle.y + obstacle.height &&
+        playerHitbox.y + playerHitbox.height > obstacle.y
+      ));
+    }
+
+    drawStartScreen() {
+      this.ctx.fillStyle = '#fff';
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      
+      this.ctx.fillStyle = '#000';
+      this.ctx.font = `${this.canvas.width * 0.05}px Arial`;
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText('Cliquez pour commencer', this.canvas.width / 2, this.canvas.height / 2);
+    }
+
+    draw() {
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      
+      // Dessiner le joueur avec l'image en respectant le ratio
+      this.ctx.save();
+      this.ctx.translate(this.player.x + this.player.width / 2, this.player.y + this.player.height / 2);
+      this.ctx.rotate(Math.min(Math.max(this.player.velocity * 0.05, -Math.PI / 6), Math.PI / 6));
+      this.ctx.drawImage(
+        this.playerImage,
+        -this.player.width / 2,
+        -this.player.height / 2,
+        this.player.width,
+        this.player.height
+      );
+      this.ctx.restore();
+
+      this.ctx.fillStyle = '#000';
+      for (const obstacle of this.obstacles) {
+        this.ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+      }
+
+      if (this.gameOver) {
+        this.ctx.fillStyle = '#000';
+        this.ctx.font = `${this.canvas.width * 0.05}px Arial`;
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Game Over - Cliquez pour recommencer', this.canvas.width / 2, this.canvas.height / 2);
+      }
+    }
+
+    update() {
+      if (this.gameOver) return;
+
+      this.player.velocity += this.player.gravity;
+      this.player.y += this.player.velocity;
+
+      // Empêcher le joueur de sortir du canvas
+      if (this.player.y < 0) {
+        this.player.y = 0;
+        this.player.velocity = 0;
+      } else if (this.player.y + this.player.height > this.canvas.height) {
+        this.player.y = this.canvas.height - this.player.height;
+        this.player.velocity = 0;
+      }
+
+      this.updateObstacles();
+
+      if (this.checkCollision()) {
+        this.gameOver = true;
+        if (this.score > this.highScore) {
+          this.highScore = this.score;
+          localStorage.setItem('flappyHighScore', this.highScore.toString());
+          this.updateHighScoreDisplay();
+        }
+        // Sauvegarder le score
+        this.saveScore(this.score);
+      }
+    }
+
+    animate() {
+      if (this.gameStarted) {
+        this.update();
+        this.draw();
+        if (!this.gameOver) {
+          requestAnimationFrame(() => this.animate());
+        }
+      }
+    }
+
+    // Ajouter la méthode pour sauvegarder le score
+    async saveScore(score) {
+      if (!this.playerName) return;
+      
+      try {
+        const response = await fetch('/api/scores', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            player: this.playerName,
+            score: score
+          })
+        });
+
+        if (response.ok) {
+          // Rafraîchir le tableau des scores
+          const scoresResponse = await fetch('/api/scores');
+          const scores = await scoresResponse.json();
+          this.updateScoresList(scores);
+        }
+      } catch (error) {
+        console.error('Erreur:', error);
+      }
+    }
+
+    // Ajouter la méthode pour mettre à jour la liste des scores
+    updateScoresList(scores) {
+      const scoresList = document.getElementById('scoresList');
+      if (!scoresList) return;
+
+      scoresList.innerHTML = scores.map(score => `
+        <div class="score-item">
+          <span class="player-name">${score.player}</span>
+          <span class="score-value">${score.score}</span>
+        </div>
+      `).join('');
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => new FlappyGame());
+  } else {
+    new FlappyGame();
+  }
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Flappy Bird Game",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Titre",
+      "default": "Flappy Bird"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Flappy Bird Game",
+      "category": "Games"
+    }
+  ]
+}
+{% endschema %}
