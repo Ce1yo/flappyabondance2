@@ -1,7 +1,10 @@
 [build]
 base = "flappy-app"
-command = "npm install"
-publish = "flappy-app"
+command = "npm install && npm start"
+publish = "."
+
+[build.environment]
+NODE_VERSION = "18"
 
 [functions]
 directory = "flappy-app"
