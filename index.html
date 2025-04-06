@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird</title>
+    <!-- Firebase SDK -->
+    <script type="module">
+      import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.6.0/firebase-app.js';
+      import { 
+        getAuth, 
+        signInWithEmailAndPassword, 
+        createUserWithEmailAndPassword, 
+        onAuthStateChanged,
+        signOut
+      } from 'https://www.gstatic.com/firebasejs/9.6.0/firebase-auth.js';
+      import { getDatabase, ref, push, onValue, off, query, orderByChild, limitToLast } from 'https://www.gstatic.com/firebasejs/9.6.0/firebase-database.js';
+      import { getAnalytics } from 'https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics.js';
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyDrj-Ka5VbRUlxhjL5Rl4JaX8IPMU1iqkE",
+        authDomain: "flappy-abondance.firebaseapp.com",
+        databaseURL: "https://flappy-abondance-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "flappy-abondance",
+        storageBucket: "flappy-abondance.appspot.com",
+        messagingSenderId: "304017778345",
+        appId: "1:304017778345:web:24ff495a05435048a0abb8",
+        measurementId: "G-XPGG6RQ2Z9"
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db = getDatabase(app);
+      const analytics = getAnalytics(app);
+
+      // Create global firebaseInstance
+      window.firebaseInstance = {
+        app,
+        auth,
+        db,
+        signIn: (email, password) => signInWithEmailAndPassword(auth, email, password),
+        signUp: (email, password) => createUserWithEmailAndPassword(auth, email, password),
+        signOut: () => signOut(auth),
+        onAuthStateChanged: (callback) => onAuthStateChanged(auth, callback),
+        dbRef: (path) => ref(db, path),
+        dbPush: push,
+        dbQuery: query,
+        dbOrderByChild: orderByChild,
+        dbLimitToLast: limitToLast,
+        dbOnValue: onValue,
+        dbOff: off
+      };
+
+      // Wait for Firebase to initialize before starting the game
+      window.addEventListener('load', () => {
+        // Game code starts here
+        (function() {
+          // Gestion de l'authentification
+          let isLoginMode = true;
+          const authForm = document.getElementById('authForm');
+          const userInfo = document.getElementById('userInfo');
+          const authButton = document.getElementById('authButton');
+          const authToggle = document.getElementById('authToggle');
+          const authError = document.getElementById('authError');
+          const emailInput = document.getElementById('emailInput');
+          const passwordInput = document.getElementById('passwordInput');
+          const userEmail = document.getElementById('userEmail');
+          const logoutButton = document.getElementById('logoutButton');
+          const gameContainer = document.getElementById('gameContainer');
+
+          // Basculer entre connexion et inscription
+          authToggle.addEventListener('click', () => {
+            isLoginMode = !isLoginMode;
+            authButton.textContent = isLoginMode ? 'Se connecter' : 'Créer un compte';
+            authToggle.textContent = isLoginMode ? 
+              'Pas encore de compte ? Créer un compte' : 
+              'Déjà un compte ? Se connecter';
+            authError.textContent = '';
+          });
+
+          // Gérer la connexion/inscription
+          authButton.addEventListener('click', async () => {
+            const email = emailInput.value;
+            const password = passwordInput.value;
+
+            try {
+              if (isLoginMode) {
+                await window.firebaseInstance.signIn(email, password);
+              } else {
+                await window.firebaseInstance.signUp(email, password);
+              }
+              authError.textContent = '';
+            } catch (error) {
+              console.error('Erreur d\'authentification:', error);
+              authError.textContent = error.message;
+            }
+          });
+
+          // Gérer la déconnexion
+          logoutButton.addEventListener('click', async () => {
+            try {
+              await window.firebaseInstance.signOut();
+            } catch (error) {
+              console.error('Erreur de déconnexion:', error);
+            }
+          });
+
+          // Observer les changements d'état d'authentification
+          window.firebaseInstance.onAuthStateChanged((user) => {
+            if (user) {
+              // Utilisateur connecté
+              authForm.style.display = 'none';
+              userInfo.style.display = 'block';
+              gameContainer.style.display = 'block';
+              userEmail.textContent = user.email;
+              
+              // Initialiser le jeu avec l'email comme nom du joueur
+              if (window.game) {
+                window.game.playerName = user.email;
+              } else {
+                window.game = new FlappyGame(user.email);
+              }
+            } else {
+              // Utilisateur déconnecté
+              authForm.style.display = 'block';
+              userInfo.style.display = 'none';
+              gameContainer.style.display = 'none';
+              emailInput.value = '';
+              passwordInput.value = '';
+            }
+          });
+
+          class FlappyGame {
+            constructor(playerEmail) {
+              this.playerName = playerEmail;
+              this.canvas = document.getElementById('gameCanvas');
+              if (!this.canvas) {
+                console.error('Canvas element not found');
+                return;
+              }
+              this.ctx = this.canvas.getContext('2d');
+              
+              // Initialiser les propriétés du jeu
+              this.gravity = 0.5;
+              this.jumpForce = -10;
+              this.obstacleWidth = 50;
+              this.gameSpeed = 3;
+              
+              // Ajuster la taille du canvas pour les appareils mobiles
+              this.adjustCanvasSize();
+              window.addEventListener('resize', () => this.adjustCanvasSize());
+              
+              // Empêcher le défilement sur mobile lors du toucher du canvas
+              this.canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+              this.canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+              
+              // Initialiser la base de données
+              this.db = window.firebaseInstance.db;
+              
+              // Charger l'image du joueur
+              this.playerImage = new Image();
+              this.playerImage.src = 'https://cdn.shopify.com/s/files/1/0911/3894/9465/files/abondance.png?v=1743032067';
+              this.playerImage.onload = () => {
+                this.init();
+                this.updateLeaderboard();
+              };
+            }
+
+            adjustCanvasSize() {
+              const isMobile = window.innerWidth <= 768;
+              const container = this.canvas.parentElement;
+              const containerWidth = container.clientWidth;
+              const containerHeight = container.clientHeight;
+              
+              // Ajuster la taille du canvas
+              this.canvas.width = containerWidth;
+              this.canvas.height = containerHeight;
+              
+              // Ajuster les paramètres du jeu en fonction de la taille
+              this.gravity = isMobile ? 0.4 : 0.5;
+              this.jumpForce = isMobile ? -8 : -10;
+              this.pipeGap = isMobile ? containerHeight * 0.28 : containerHeight * 0.35;
+              this.obstacleWidth = isMobile ? containerWidth * 0.15 : containerWidth * 0.1;
+              
+              // Recalculer la position du joueur si elle existe
+              if (this.player) {
+                this.player.x = containerWidth * 0.2;
+                this.player.size = isMobile ? containerWidth * 0.1 : containerWidth * 0.08;
+              }
+            }
+
+            updateLeaderboard() {
+              console.log('Mise à jour du tableau des scores...');
+              const scoresRef = window.firebaseInstance.dbRef('scores');
+              
+              // Désabonner des anciens listeners pour éviter les doublons
+              window.firebaseInstance.dbOff(scoresRef);
+              
+              // Créer la requête pour les 10 meilleurs scores
+              const topScoresQuery = window.firebaseInstance.dbQuery(
+                scoresRef,
+                window.firebaseInstance.dbOrderByChild('score'),
+                window.firebaseInstance.dbLimitToLast(10)
+              );
+              
+              // Écouter les changements
+              window.firebaseInstance.dbOnValue(topScoresQuery, (snapshot) => {
+                console.log('Snapshot des meilleurs scores:', snapshot.val());
+                const scores = [];
+                
+                if (snapshot.exists()) {
+                  snapshot.forEach((childSnapshot) => {
+                    const score = {
+                      id: childSnapshot.key,
+                      ...childSnapshot.val()
+                    };
+                    scores.push(score);
+                  });
+                  
+                  // Trier par score décroissant
+                  scores.sort((a, b) => b.score - a.score);
+                  
+                  // Créer le HTML pour l'affichage
+                  const leaderboardHtml = scores
+                    .map((score, index) => `
+                      <div class="score-entry ${score.name === this.playerName ? 'current-player' : ''}">
+                        <span class="rank">#${index + 1}</span>
+                        <span class="player">${score.name}</span>
+                        <span class="score">${score.score}</span>
+                      </div>
+                    `)
+                    .join('');
+                  
+                  const leaderboardElement = document.getElementById('leaderboardList');
+                  if (leaderboardElement) {
+                    leaderboardElement.innerHTML = leaderboardHtml;
+                    console.log('Tableau des scores mis à jour');
+                  }
+                } else {
+                  console.log('Aucun score trouvé dans la base de données');
+                  document.getElementById('leaderboardList').innerHTML = 
+                    '<div class="score-entry">Soyez le premier à marquer !</div>';
+                }
+              });
+            }
+
+            createObstacle() {
+              const gap = this.pipeGap;
+              const minHeight = this.canvas.height * 0.125;
+              const maxHeight = this.canvas.height - gap - minHeight;
+              const height1 = Math.random() * (maxHeight - minHeight) + minHeight;
+              
+              this.obstacles.push(
+                {
+                  x: this.canvas.width,
+                  y: 0,
+                  width: this.obstacleWidth,
+                  height: height1,
+                  passed: false
+                },
+                {
+                  x: this.canvas.width,
+                  y: height1 + gap,
+                  width: this.obstacleWidth,
+                  height: this.canvas.height - height1 - gap,
+                  passed: false
+                }
+              );
+            }
+
+            saveScore() {
+              if (!this.playerName || !this.db) {
+                console.error('Impossible de sauvegarder le score - non connecté');
+                return;
+              }
+              
+              const scoreData = {
+                name: this.playerName,
+                score: this.score,
+                timestamp: Date.now(),
+                uid: window.firebaseInstance.auth.currentUser.uid
+              };
+
+              const scoresRef = window.firebaseInstance.dbRef('scores');
+              window.firebaseInstance.dbPush(scoresRef, scoreData);
+            }
+
+            init() {
+              this.player = {
+                x: this.canvas.width * 0.2,
+                y: this.canvas.height / 2,
+                velocity: 0,
+                size: this.canvas.width * 0.1
+              };
+      
+              this.obstacles = [];
+              this.obstacleTimer = 0;
+              this.obstacleInterval = 1500;
+              this.lastObstacleTime = 0;
+              
+              this.score = 0;
+              this.highScore = parseInt(localStorage.getItem('flappyHighScore')) || 0;
+              this.gameOver = false;
+              this.gameStarted = false;
+              this.scoreSaved = false;
+              
+              this.updateHighScoreDisplay();
+              this.bindEvents();
+              this.drawStartScreen();
+            }
+
+            updateHighScoreDisplay() {
+              const highScoreElement = document.getElementById('highScore');
+              if (highScoreElement) {
+                highScoreElement.textContent = `Meilleur Score: ${this.highScore}`;
+              }
+            }
+
+            bindEvents() {
+              const handleAction = (e) => {
+                if (e && e.preventDefault) {
+                  e.preventDefault();
+                }
+                
+                if (!this.gameStarted) {
+                  this.startGame();
+                } else if (!this.gameOver) {
+                  this.player.velocity = this.jumpForce;
+                } else {
+                  this.init();
+                  this.startGame();
+                }
+              };
+      
+              window.addEventListener('keydown', (e) => {
+                if (e.code === 'Space' || e.code === 'ArrowUp') {
+                  handleAction(e);
+                }
+              });
+      
+              this.canvas.addEventListener('click', handleAction);
+              this.canvas.addEventListener('touchstart', handleAction);
+              
+              const jumpButton = document.getElementById('jumpButton');
+              if (jumpButton) {
+                jumpButton.addEventListener('click', handleAction);
+              }
+              
+              this.canvas.focus();
+            }
+
+            handleJump() {
+              this.player.velocity = this.jumpForce;
+            }
+
+            startGame() {
+              if (!this.playerName || !this.db) {
+                console.error('Impossible de démarrer le jeu - non connecté');
+                return;
+              }
+
+              this.gameStarted = true;
+              this.gameOver = false;
+              this.score = 0;
+              this.obstacles = [];
+              this.player.y = this.canvas.height / 2;
+              this.player.velocity = 0;
+              this.scoreSaved = false;
+              this.lastObstacleTime = Date.now();
+              this.updateScore();
+              this.animate();
+            }
+
+            resetGame() {
+              this.startGame();
+            }
+
+            updateScore() {
+              const scoreElement = document.getElementById('currentScore');
+              if (scoreElement) {
+                scoreElement.textContent = `Score: ${this.score}`;
+              }
+            }
+
+            updateObstacles() {
+              const now = Date.now();
+              if (now - this.lastObstacleTime > this.obstacleInterval) {
+                this.createObstacle();
+                this.lastObstacleTime = now;
+              }
+      
+              const speed = this.canvas.width * 0.008;
+              for (let i = this.obstacles.length - 1; i >= 0; i--) {
+                const obstacle = this.obstacles[i];
+                obstacle.x -= speed;
+      
+                if (obstacle.x + obstacle.width < 0) {
+                  this.obstacles.splice(i, 1);
+                } else if (!obstacle.passed && obstacle.x + obstacle.width < this.player.x) {
+                  obstacle.passed = true;
+                  if (i % 2 === 0) {
+                    this.score++;
+                    this.updateScore();
+                  }
+                }
+              }
+            }
+
+            checkCollision() {
+              const playerHitbox = {
+                x: this.player.x,
+                y: this.player.y,
+                width: this.player.size,
+                height: this.player.size
+              };
+
+              // Vérifier les collisions avec les obstacles
+              const hasCollision = this.obstacles.some(obstacle => (
+                playerHitbox.x < obstacle.x + obstacle.width &&
+                playerHitbox.x + playerHitbox.width > obstacle.x &&
+                playerHitbox.y < obstacle.y + obstacle.height &&
+                playerHitbox.y + playerHitbox.height > obstacle.y
+              ));
+
+              // On ne vérifie que les collisions avec les obstacles et le haut du canvas
+              if (hasCollision || this.player.y <= 0) {
+                console.log('Collision détectée! Score final:', this.score);
+                this.gameOver = true;
+                this.handleGameOver();
+                return true;
+              }
+              return false;
+            }
+
+            handleGameOver() {
+              if (!this.scoreSaved && this.score > 0) {
+                console.log('Sauvegarde du score final...');
+                this.saveScore();
+                this.scoreSaved = true;
+              }
+            }
+
+            update() {
+              if (this.gameOver) return;
+
+              this.player.velocity += this.gravity;
+              this.player.y += this.player.velocity;
+
+              // Empêcher le joueur de sortir du canvas par le haut
+              if (this.player.y < 0) {
+                this.player.y = 0;
+                this.player.velocity = 0;
+              }
+              // Empêcher le joueur de sortir du canvas par le bas (sans game over)
+              else if (this.player.y + this.player.size > this.canvas.height) {
+                this.player.y = this.canvas.height - this.player.size;
+                this.player.velocity = 0;
+              }
+
+              this.updateObstacles();
+              this.checkCollision();
+            }
+
+            drawStartScreen() {
+              this.ctx.fillStyle = '#fff';
+              this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+              
+              this.ctx.fillStyle = '#000';
+              this.ctx.font = `${this.canvas.width * 0.05}px Arial`;
+              this.ctx.textAlign = 'center';
+              this.ctx.fillText('Cliquez pour commencer', this.canvas.width / 2, this.canvas.height / 2);
+            }
+
+            draw() {
+              this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+              
+              // Dessiner le joueur avec l'image en respectant le ratio
+              this.ctx.save();
+              this.ctx.translate(this.player.x + this.player.size / 2, this.player.y + this.player.size / 2);
+              this.ctx.rotate(Math.min(Math.max(this.player.velocity * 0.05, -Math.PI / 6), Math.PI / 6));
+              this.ctx.drawImage(
+                this.playerImage,
+                -this.player.size / 2,
+                -this.player.size / 2,
+                this.player.size,
+                this.player.size
+              );
+              this.ctx.restore();
+      
+              this.ctx.fillStyle = '#000';
+              for (const obstacle of this.obstacles) {
+                this.ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+              }
+      
+              if (this.gameOver) {
+                this.ctx.fillStyle = '#000';
+                this.ctx.font = `${this.canvas.width * 0.05}px Arial`;
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('Game Over - Cliquez pour recommencer', this.canvas.width / 2, this.canvas.height / 2);
+              }
+            }
+
+            animate() {
+              if (this.gameStarted) {
+                this.update();
+                this.draw();
+                if (!this.gameOver) {
+                  requestAnimationFrame(() => this.animate());
+                }
+              }
+            }
+          }
+  
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => new FlappyGame());
+          } else {
+            new FlappyGame();
+          }
+        })();
+      });
+    </script>
+    <style>
+.game-wrapper {
+  margin: 20px auto;
+  max-width: 800px;
+  width: 100%;
+  padding: 0 15px;
+  box-sizing: border-box;
+}
+
+.game-container {
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.game-section {
+  position: relative;
+  margin-bottom: 20px;
+  background: #fff;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  width: 100%;
+  max-width: 600px;
+}
+
+.canvas-container {
+  position: relative;
+  width: 100%;
+  padding-bottom: 66.67%;
+}
+
+#gameCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 2px solid #000;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.controls-info {
+  margin-top: 10px;
+  text-align: center;
+}
+
+.jump-button {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 8px 20px;
+  background-color: #000;
+  color: white;
+  border: 2px solid #000;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s;
+}
+
+.jump-button:hover {
+  background-color: white;
+  color: #000;
+}
+
+.jump-button:active {
+  background-color: #333;
+  color: white;
+}
+
+.info-section {
+  width: 100%;
+  max-width: 600px;
+  text-align: center;
+}
+
+.score-container {
+  margin-bottom: 20px;
+  font-size: 1.2em;
+  background: #fff;
+  padding: 15px;
+  border-radius: 8px;
+  border: 2px solid #000;
+}
+
+.leaderboard-container {
+  background: #fff;
+  padding: 15px;
+  border-radius: 8px;
+  border: 2px solid #000;
+  margin-top: 20px;
+}
+
+.score-entry {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 10px;
+  margin: 5px 0;
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+.current-player {
+  background: #e0e0e0;
+  font-weight: bold;
+}
+
+.auth-container {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  border: 2px solid #000;
+  margin: 20px auto;
+  max-width: 400px;
+  text-align: center;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.auth-input {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.auth-button {
+  padding: 10px;
+  background-color: #000;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.3s;
+}
+
+.auth-button:hover {
+  background-color: #333;
+}
+
+.auth-toggle {
+  margin-top: 10px;
+  color: #666;
+  cursor: pointer;
+}
+
+.auth-error {
+  color: red;
+  margin-top: 10px;
+}
+
+.user-info {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+}
+
+.logout-button {
+  margin-top: 10px;
+  padding: 8px 16px;
+  background-color: #ff4444;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.logout-button:hover {
+  background-color: #cc0000;
+}
+
+@media (max-width: 768px) {
+  .game-wrapper {
+    padding: 0 10px;
+  }
+  
+  .game-container {
+    padding: 10px;
+  }
+  
+  .controls-info {
+    font-size: 14px;
+  }
+  
+  .score-container {
+    font-size: 1em;
+    padding: 10px;
+  }
+}
+</style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="page-width">
+            <!-- Conteneur d'authentification -->
+            <div class="auth-container" id="authContainer">
+                <div id="authForm">
+                    <h2>Connexion</h2>
+                    <form class="auth-form" onsubmit="return false;">
+                        <input type="email" id="emailInput" class="auth-input" placeholder="Email" required>
+                        <input type="password" id="passwordInput" class="auth-input" placeholder="Mot de passe" required>
+                        <button id="authButton" class="auth-button">Se connecter</button>
+                    </form>
+                    <p class="auth-toggle" id="authToggle">
+                        Pas encore de compte ? Créer un compte
+                    </p>
+                    <p class="auth-error" id="authError"></p>
+                </div>
+                <div id="userInfo" style="display: none;">
+                    <p>Connecté en tant que : <span id="userEmail"></span></p>
+                    <button id="logoutButton" class="logout-button">Se déconnecter</button>
+                </div>
+            </div>
+
+            <!-- Conteneur du jeu (caché jusqu'à la connexion) -->
+            <div id="gameContainer" class="game-container" style="display: none;">
+                <div class="game-section">
+                    <div class="canvas-container">
+                        <canvas id="gameCanvas" tabindex="0"></canvas>
+                    </div>
+                    <div class="controls-info">
+                        <button id="jumpButton" class="jump-button">Sauter</button>
+                    </div>
+                </div>
+                <div class="info-section">
+                    <div class="score-container">
+                        <div id="currentScore">Score: 0</div>
+                        <div id="highScore">Meilleur Score: 0</div>
+                    </div>
+                    <div id="leaderboardList" class="leaderboard-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

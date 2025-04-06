@@ -1,0 +1,616 @@
+<div class="section-{{ section.id }}-padding">
+  <div class="page-width">
+    {% if section.settings.title != blank %}
+      <h2 class="h1 text-center">{{ section.settings.title | escape }}</h2>
+    {% endif %}
+    
+    <!-- Conteneur d'authentification -->
+    <div class="auth-container" id="authContainer">
+      {% if customer %}
+        <div class="user-info" id="userInfo">
+          <p>Connecté en tant que : <span id="userEmail">{{ customer.email }}</span></p>
+          <a href="{{ routes.account_logout_url }}" class="button button--primary">Se déconnecter</a>
+        </div>
+      {% else %}
+        <div class="auth-form" id="authForm">
+          {% form 'customer_login' %}
+            <div class="field">
+              <input type="email" name="customer[email]" id="emailInput" class="field__input" placeholder="Email" required>
+            </div>
+            <div class="field">
+              <input type="password" name="customer[password]" id="passwordInput" class="field__input" placeholder="Mot de passe" required>
+            </div>
+            <button type="submit" class="button button--primary">Se connecter</button>
+            {% if form.errors %}
+              <div class="error-message" id="authError">
+                {{ form.errors | default_errors }}
+              </div>
+            {% endif %}
+          {% endform %}
+          <p class="auth-toggle">
+            <a href="{{ routes.account_register_url }}">Pas encore de compte ? Créer un compte</a>
+          </p>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Tableau des scores -->
+    <div class="leaderboard">
+      <h3>Meilleurs scores</h3>
+      <div class="scores-list" id="scoresList">
+        {% assign scores = shop.metafields.flappy_game.scores | default: '[]' | parse_json %}
+        {% for score in scores limit: 10 %}
+          <div class="score-item">
+            <span class="player-name">{{ score.player }}</span>
+            <span class="score-value">{{ score.score }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="game-wrapper" data-game-container>
+      <div class="game-container">
+        <div class="game-section">
+          <div class="canvas-container">
+            <canvas id="gameCanvas" tabindex="0"></canvas>
+          </div>
+          <div class="controls-info">
+              <button id="jumpButton" class="jump-button">Sauter</button>
+
+          </div>
+        </div>
+        <div class="info-section">
+          <div class="score-container">
+            <div id="currentScore">Score: 0</div>
+            <div id="highScore">Meilleur Score: 0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.game-wrapper {
+  margin: 20px auto;
+  max-width: 800px;
+  width: 100%;
+  padding: 0 15px;
+  box-sizing: border-box;
+}
+
+.game-container {
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.game-section {
+  position: relative;
+  margin-bottom: 20px;
+  background: #fff;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  width: 100%;
+  max-width: 600px;
+}
+
+.canvas-container {
+  position: relative;
+  width: 100%;
+  padding-bottom: 66.67%; /* Ratio 3:2 */
+}
+
+#gameCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 2px solid #000;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.controls-info {
+  margin-top: 10px;
+  text-align: center;
+}
+
+.jump-button {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 8px 20px;
+  background-color: #000;
+  color: white;
+  border: 2px solid #000;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s;
+}
+
+.jump-button:hover {
+  background-color: white;
+  color: #000;
+}
+
+.jump-button:active {
+  background-color: #333;
+  color: white;
+}
+
+.info-section {
+  width: 100%;
+  max-width: 600px;
+  text-align: center;
+}
+
+.score-container {
+  margin-bottom: 20px;
+  font-size: 1.2em;
+  background: #fff;
+  padding: 15px;
+  border-radius: 8px;
+  border: 2px solid #000;
+}
+
+.auth-container {
+  max-width: 400px;
+  margin: 0 auto 20px;
+  padding: 20px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.field {
+  margin-bottom: 15px;
+}
+
+.field__input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.error-message {
+  color: #dc3545;
+  margin-top: 10px;
+}
+
+.auth-toggle {
+  margin-top: 15px;
+  text-align: center;
+}
+
+.leaderboard {
+  max-width: 600px;
+  margin: 20px auto;
+  padding: 20px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.scores-list {
+  margin-top: 15px;
+}
+
+.score-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.score-item:last-child {
+  border-bottom: none;
+}
+
+.player-name {
+  font-weight: bold;
+}
+
+.button {
+  display: inline-block;
+  padding: 8px 20px;
+  background-color: #000;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  width: 100%;
+}
+
+.button:hover {
+  background-color: #333;
+}
+
+@media (max-width: 768px) {
+  .game-wrapper {
+    padding: 0 10px;
+  }
+  
+  .game-container {
+    padding: 10px;
+  }
+  
+  .controls-info {
+    font-size: 14px;
+  }
+  
+  .score-container {
+    font-size: 1em;
+    padding: 10px;
+  }
+}
+</style>
+
+<script>
+(function() {
+  class FlappyGame {
+    constructor() {
+      this.canvas = document.getElementById('gameCanvas');
+      if (!this.canvas) {
+        console.error('Canvas element not found');
+        return;
+      }
+      
+      this.ctx = this.canvas.getContext('2d');
+      this.resizeCanvas();
+      this.bindResizeEvent();
+      
+      // Charger l'image du joueur
+      this.playerImage = new Image();
+      this.playerImage.src = 'https://cdn.shopify.com/s/files/1/0911/3894/9465/files/abondance.png?v=1743032067';
+      this.playerImage.onload = () => {
+        this.init();
+      };
+      
+      // Ajouter la gestion du joueur connecté
+      this.playerName = {% if customer %}'{{ customer.email }}'{% else %}null{% endif %};
+    }
+
+    resizeCanvas() {
+      const container = this.canvas.parentElement;
+      const rect = container.getBoundingClientRect();
+      this.canvas.width = rect.width;
+      this.canvas.height = rect.height;
+      
+      // Ajuster la taille du joueur en maintenant le ratio 4:1 (80:20)
+      const baseSize = Math.min(this.canvas.width, this.canvas.height) * 0.075;
+      this.playerWidth = baseSize * 4;  // 4 fois plus large que haut
+      this.playerHeight = baseSize;
+      this.obstacleWidth = Math.min(this.canvas.width, this.canvas.height) * 0.083;
+    }
+
+    bindResizeEvent() {
+      let resizeTimeout;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          this.resizeCanvas();
+          this.adjustGameElements();
+        }, 250);
+      });
+    }
+
+    adjustGameElements() {
+      if (this.player) {
+        this.player.width = this.playerWidth;
+        this.player.height = this.playerHeight;
+        this.player.x = this.canvas.width * 0.167;
+      }
+    }
+
+    init() {
+      this.player = {
+        x: this.canvas.width * 0.167,
+        y: this.canvas.height / 2,
+        width: this.playerWidth,
+        height: this.playerHeight,
+        velocity: 0,
+        gravity: this.canvas.height * 0.0015,
+        jumpForce: -this.canvas.height * 0.03
+      };
+
+      this.obstacles = [];
+      this.obstacleTimer = 0;
+      this.obstacleInterval = 1500;
+      this.lastObstacleTime = 0;
+      
+      this.score = 0;
+      this.highScore = parseInt(localStorage.getItem('flappyHighScore')) || 0;
+      this.gameOver = false;
+      this.gameStarted = false;
+      
+      this.updateHighScoreDisplay();
+      this.bindEvents();
+      this.drawStartScreen();
+    }
+
+    updateHighScoreDisplay() {
+      const highScoreElement = document.getElementById('highScore');
+      if (highScoreElement) {
+        highScoreElement.textContent = `Meilleur Score: ${this.highScore}`;
+      }
+    }
+
+    bindEvents() {
+      const handleAction = (e) => {
+        if (e && e.preventDefault) {
+          e.preventDefault();
+        }
+        
+        if (!this.gameStarted) {
+          this.startGame();
+        } else if (!this.gameOver) {
+          this.player.velocity = this.player.jumpForce;
+        } else {
+          this.init();
+          this.startGame();
+        }
+      };
+
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' || e.code === 'ArrowUp') {
+          handleAction(e);
+        }
+      });
+
+      this.canvas.addEventListener('click', handleAction);
+      this.canvas.addEventListener('touchstart', handleAction);
+      
+      const jumpButton = document.getElementById('jumpButton');
+      if (jumpButton) {
+        jumpButton.addEventListener('click', handleAction);
+      }
+      
+      this.canvas.focus();
+    }
+
+    handleJump() {
+      this.player.velocity = this.player.jumpForce;
+    }
+
+    startGame() {
+      this.gameStarted = true;
+      this.gameOver = false;
+      this.score = 0;
+      this.obstacles = [];
+      this.player.y = this.canvas.height / 2;
+      this.player.velocity = 0;
+      this.updateScore();
+      this.animate();
+    }
+
+    resetGame() {
+      this.startGame();
+    }
+
+    updateScore() {
+      const scoreElement = document.getElementById('currentScore');
+      if (scoreElement) {
+        scoreElement.textContent = `Score: ${this.score}`;
+      }
+    }
+
+    createObstacle() {
+      const gap = this.canvas.height * 0.375;
+      const minHeight = this.canvas.height * 0.125;
+      const maxHeight = this.canvas.height - gap - minHeight;
+      const height1 = Math.random() * (maxHeight - minHeight) + minHeight;
+      
+      this.obstacles.push(
+        {
+          x: this.canvas.width,
+          y: 0,
+          width: this.obstacleWidth,
+          height: height1,
+          passed: false
+        },
+        {
+          x: this.canvas.width,
+          y: height1 + gap,
+          width: this.obstacleWidth,
+          height: this.canvas.height - height1 - gap,
+          passed: false
+        }
+      );
+    }
+
+    updateObstacles() {
+      const now = Date.now();
+      if (now - this.lastObstacleTime > this.obstacleInterval) {
+        this.createObstacle();
+        this.lastObstacleTime = now;
+      }
+
+      const speed = this.canvas.width * 0.008;
+      for (let i = this.obstacles.length - 1; i >= 0; i--) {
+        const obstacle = this.obstacles[i];
+        obstacle.x -= speed;
+
+        if (obstacle.x + obstacle.width < 0) {
+          this.obstacles.splice(i, 1);
+        } else if (!obstacle.passed && obstacle.x + obstacle.width < this.player.x) {
+          obstacle.passed = true;
+          if (i % 2 === 0) {
+            this.score++;
+            this.updateScore();
+          }
+        }
+      }
+    }
+
+    checkCollision() {
+      const playerHitbox = {
+        x: this.player.x,
+        y: this.player.y,
+        width: this.player.width,
+        height: this.player.height
+      };
+
+      // Ne vérifie que les collisions avec les obstacles
+      return this.obstacles.some(obstacle => (
+        playerHitbox.x < obstacle.x + obstacle.width &&
+        playerHitbox.x + playerHitbox.width > obstacle.x &&
+        playerHitbox.y < obstacle.y + obstacle.height &&
+        playerHitbox.y + playerHitbox.height > obstacle.y
+      ));
+    }
+
+    drawStartScreen() {
+      this.ctx.fillStyle = '#fff';
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      
+      this.ctx.fillStyle = '#000';
+      this.ctx.font = `${this.canvas.width * 0.05}px Arial`;
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText('Cliquez pour commencer', this.canvas.width / 2, this.canvas.height / 2);
+    }
+
+    draw() {
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      
+      // Dessiner le joueur avec l'image en respectant le ratio
+      this.ctx.save();
+      this.ctx.translate(this.player.x + this.player.width / 2, this.player.y + this.player.height / 2);
+      this.ctx.rotate(Math.min(Math.max(this.player.velocity * 0.05, -Math.PI / 6), Math.PI / 6));
+      this.ctx.drawImage(
+        this.playerImage,
+        -this.player.width / 2,
+        -this.player.height / 2,
+        this.player.width,
+        this.player.height
+      );
+      this.ctx.restore();
+
+      this.ctx.fillStyle = '#000';
+      for (const obstacle of this.obstacles) {
+        this.ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+      }
+
+      if (this.gameOver) {
+        this.ctx.fillStyle = '#000';
+        this.ctx.font = `${this.canvas.width * 0.05}px Arial`;
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Game Over - Cliquez pour recommencer', this.canvas.width / 2, this.canvas.height / 2);
+      }
+    }
+
+    update() {
+      if (this.gameOver) return;
+
+      this.player.velocity += this.player.gravity;
+      this.player.y += this.player.velocity;
+
+      // Empêcher le joueur de sortir du canvas
+      if (this.player.y < 0) {
+        this.player.y = 0;
+        this.player.velocity = 0;
+      } else if (this.player.y + this.player.height > this.canvas.height) {
+        this.player.y = this.canvas.height - this.player.height;
+        this.player.velocity = 0;
+      }
+
+      this.updateObstacles();
+
+      if (this.checkCollision()) {
+        this.gameOver = true;
+        if (this.score > this.highScore) {
+          this.highScore = this.score;
+          localStorage.setItem('flappyHighScore', this.highScore.toString());
+          this.updateHighScoreDisplay();
+        }
+        // Sauvegarder le score
+        this.saveScore(this.score);
+      }
+    }
+
+    animate() {
+      if (this.gameStarted) {
+        this.update();
+        this.draw();
+        if (!this.gameOver) {
+          requestAnimationFrame(() => this.animate());
+        }
+      }
+    }
+
+    // Ajouter la méthode pour sauvegarder le score
+    async saveScore(score) {
+      if (!this.playerName) return;
+      
+      try {
+        const response = await fetch('/api/scores', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            player: this.playerName,
+            score: score
+          })
+        });
+
+        if (response.ok) {
+          // Rafraîchir le tableau des scores
+          const scoresResponse = await fetch('/api/scores');
+          const scores = await scoresResponse.json();
+          this.updateScoresList(scores);
+        }
+      } catch (error) {
+        console.error('Erreur:', error);
+      }
+    }
+
+    // Ajouter la méthode pour mettre à jour la liste des scores
+    updateScoresList(scores) {
+      const scoresList = document.getElementById('scoresList');
+      if (!scoresList) return;
+
+      scoresList.innerHTML = scores.map(score => `
+        <div class="score-item">
+          <span class="player-name">${score.player}</span>
+          <span class="score-value">${score.score}</span>
+        </div>
+      `).join('');
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => new FlappyGame());
+  } else {
+    new FlappyGame();
+  }
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Flappy Bird Game",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Titre",
+      "default": "Flappy Bird"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Flappy Bird Game",
+      "category": "Games"
+    }
+  ]
+}
+{% endschema %}

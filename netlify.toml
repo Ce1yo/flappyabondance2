@@ -1,0 +1,7 @@
+[build]
+base = "flappy-app"
+command = "npm install"
+publish = "flappy-app"
+
+[functions]
+directory = "flappy-app"
