@@ -1,9 +1,8 @@
 console.log('Script starting...');
 
-import express from 'express';
-import http from 'http';
-
+const express = require('express');
 const app = express();
+const port = process.env.PORT || 3000;
 
 // Middleware pour le CORS et JSON
 app.use(express.json());
@@ -31,13 +30,12 @@ app.get('/api/scores', (req, res) => {
   res.json([]);
 });
 
-const PORT = process.env.PORT || 3000;
-
-console.log('About to start server...');
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+if (require.main === module) {
+  console.log('About to start server...');
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
 
 // Pour Vercel, nous devons exporter l'app
-export default app;
+module.exports = app;
